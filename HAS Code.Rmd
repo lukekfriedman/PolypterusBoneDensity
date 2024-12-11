@@ -1,0 +1,712 @@
+---
+title: "Final Project"
+author: "Luke Friedman"
+date: "2024-12-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+incsv = "C:/Users/Luke Friedman/Documents/Polypterus/bluered/bluereddistrays.csv"
+ ndata <- read.csv(incsv, header = TRUE)
+print(head(ndata$x))
+print(sum(is.na(as.numeric(ndata$x))))
+library(tidyverse)
+library(ggplot2)
+library(stringr)
+```
+
+Scan Intensity to Bone Density Regressions
+```{r}
+#A3HAS <- read.csv("C:/Users/Luke Friedman/Documents/Polypterus/A3/A3HAS.csv")
+regressionHAS <- function(file_path) {
+  d1 <- read.csv(file_path, header = TRUE)
+  colnames(d1) <- c('group', 'values')
+  d1$values <- as.numeric(d1$values)
+  n_group <- nrow(d1) %/% 5
+  
+  means <- sapply(1:n_group, function(i) {mean(d1$values[((i-1)*5+1):(i*5)])})
+  print(means)
+  
+  ex_den <- c(-20.379, 101.8616, 212.4351, 417.3955, 789.2673)
+  matrix <- matrix(c(means, ex_den), nrow=2, byrow=TRUE)
+
+rownames(matrix) <- c("Intensity Measured", "HA Vals")
+print(matrix)
+
+plot(means, ex_den, ylab="Density Standards", xlab="Measured Intensity")
+mod <- lm(ex_den ~ means)
+abline(mod)
+print(summary(mod))
+}
+lm1 <- regressionHAS("C:/Users/Luke Friedman/Documents/Polypterus/B5/HASB5.csv")
+lm1
+cf <- coef(lm1)
+Intercept1 <- cf[1]
+Slope1 <- cf[2]
+
+intenseregression <- function(incsv, outcsv, m, b) {
+  ndata <- read.csv(incsv, header = TRUE)
+  ndata$y <- m * ndata$x + b
+  write.csv(ndata, outcsv, row.names = FALSE)
+  print(paste("New data:", outcsv))
+}
+intenseregression(
+  incsv = "C:/Users/Luke Friedman/Documents/Polypterus/B5/B5proxrays.csv", 
+  outcsv = "B5proxraysnew.csv", 
+  m = Slope1, 
+  b = Intercept1)
+
+A2.1densities <- read.csv('B5proxraysnew.csv')
+View(A2.1densities)
+write.csv(A2.1densities,"~/Polypterus/B5/B5proxraysnew.csv", row.names = FALSE)
+
+```
+Data Conglomeration to Single CSV File
+```{r}
+path_to_data <- "C:/Users/Luke Friedman/Documents/Polypterus"
+
+specimen_ids <- list( Aquatic = c("A2", "A3", "B4", "B5", "C2"), Terrestrial = c("bluered", "gror", "orgwht", "redblue", "redred"))
+
+
+# Bone groups
+bone_groups <- list(
+  Radials = list(filename_suffix = "Radials.csv"),
+    
+  Proximal_Fin_Rays = list(filename_suffix = "proxrays.csv"),
+  Distal_Fin_Rays = list(filename_suffix = "distrays.csv"),
+  Prop_Metap = list(filename_suffix = "PrMt.csv")
+)
+
+
+process_csv <- function(file_path, bone_group, specimen_id, treatment_group = list()) {
+  data <- read.csv(file_path)
+  
+  if ("Density" %in% colnames(data)) {
+    bone_density <- data[["Density"]]
+  } else {
+    bone_density <- data[[3]]
+  }
+  
+  if (is.null(bone_density) || length(bone_density) == 0) {
+    warning(paste("No valid bone density data found in file:", file_path))
+    return(NULL)
+  }
+  
+  processed_data <- data.frame(
+    Specimen.ID = specimen_id,
+    Treatment.Group = treatment_group,
+    Bone.Group = bone_group,
+    BoneDensity = bone_density
+  )
+  
+  return(processed_data)
+}
+
+
+all_data <- data.frame()
+
+
+
+
+for (treatment in names(specimen_ids)) {
+  for (specimen in specimen_ids[[treatment]]) {
+    for (bone_group in names(bone_groups)) {
+      file_path <- file.path(path_to_data, paste0(specimen, "_", bone_groups[[bone_group]]$filename_suffix))
+      
+      if (!file.exists(file_path)) {
+        warning(paste("File not found:", file_path)) }
+      
+        bone_data <- process_csv(
+          file_path = file_path,
+          bone_group = bone_group,
+          specimen_id = specimen,
+          treatment_group = treatment
+        )
+      
+          all_data <- rbind(all_data, bone_data)
+        }
+      } 
+      }
+
+
+
+output_file_path <- file.path(path_to_data, "consolidated_bone_density_data1.csv")
+write.csv(all_data, file = output_file_path, row.names = FALSE)
+cat("Final data saved to:", output_file_path, "\n")
+```
+Initial Visualization
+
+```{r}
+data <- read.csv("consolidated_bone_density_data.csv")
+library(tidyverse)
+
+
+
+hist1 <- data[data$Treatment.Group %in% c("Aquatic", "Terrestrial"),]
+
+
+ggplot(data=hist1, aes(x=BoneDensity, fill=Treatment.Group)) + geom_density(alpha=0.5) + labs(title="Bone Density by Treatment Group", x="Bone Density (mg/ccm)")
+
+ggplot(data=hist1, aes(x=BoneDensity, fill=Treatment.Group)) + geom_density(alpha=0.5) + scale_x_log10() + labs(title="Bone Density by Treatment Group (Log-Scale)", x="Bone Density (mg/ccm)")
+
+ggplot(data = hist1, aes(x = BoneDensity, fill = Treatment.Group)) + geom_histogram(position = "dodge", binwidth = 100)
+
+ggplot(data=hist1, aes(x=BoneDensity, fill=Treatment.Group)) + geom_density(alpha=0.5) + scale_x_log10() + labs(title="Bone Density by Treatment Group (Log-Scale)", x="Bone Density (mg/ccm)") + facet_wrap(~Bone.Group)
+
+library(stringr)
+
+dorven <- hist1 %>%
+  mutate(Position_Group = case_when(
+    str_detect(Position, regex("Dorsal|Proximal1|Proximal2|Proximal3|Proximal4|Proximal5|Distal1|Distal2|Distal3|Distal4|Distal5|Mid1|Mid2|Mid3|Mid4|Mid5|propterygium")) ~ "Dorsal",
+    str_detect(Position, regex("Ventral|Proximal6|Proximal7|Proximal8|Proximal9|Proximal10|Distal6|Distal7|Distal8|Distal9|Distal10|Mid6|Mid7|Mid8|Mid9|Mid10|metapterygium")) ~ "Ventral",
+    TRUE ~ "Other"
+  ))
+
+ggplot(data=dorven, aes(x=BoneDensity, fill=Treatment.Group)) + geom_density(alpha=0.5) + scale_x_log10() + labs(title="Bone Density by Treatment Group (Log-Scale)", x="Bone Density (mg/ccm)") + facet_wrap(~Position_Group)
+
+
+
+
+
+
+
+
+
+```
+Identification of Outlying Specimens
+```{r}
+ggplot(data=hist1, aes(x=BoneDensity, fill=Treatment.Group)) + geom_density(alpha=0.5) + scale_x_log10() + labs(title="Bone Density by Treatment Group", x="Bone Density (mg/ccm)") +facet_wrap(~Specimen.ID) + coord_flip()
+
+static <- data %>% group_by(Treatment.Group, Specimen.ID) %>% summarise(meandensity=mean(BoneDensity), SDdensity=sd(BoneDensity))
+
+ggplot(static, aes(x=Specimen.ID, y=meandensity, color=Treatment.Group)) + geom_point(size=2)+ geom_errorbar(aes(ymin=meandensity-SDdensity, ymax=meandensity+SDdensity)) + labs(title = "Mean Bone Density and Standard Deviation by Individual", x = "Specimen", y = "Bone Density (mg/ccm)") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+Filtered Visualizations
+```{r}
+filtdata <- data %>% filter(!Specimen.ID %in% c("bluered", "C2", "B4"))
+
+hist2 <- filtdata[filtdata$Treatment.Group %in% c("Aquatic", "Terrestrial"),]
+
+ggplot(data=hist2, aes(x=BoneDensity, fill=Treatment.Group)) + geom_density(alpha=0.5) + labs(title="Bone Density by Treatment Group", x="Bone Density (mg/ccm)") #+ xlim(0, 2000)
+
+ggplot(data=hist2, aes(x=BoneDensity, fill=Treatment.Group)) + geom_density(alpha=0.5) + scale_x_log10() + labs(title="Bone Density by Treatment Group (Log-Scale)", x="Bone Density (mg/ccm)")
+
+ggplot(data=hist2, aes(x=BoneDensity, fill=Treatment.Group)) + geom_density(alpha=0.5) + scale_x_log10() + labs(title="Bone Density by Treatment Group (Log-Scale)", x="Bone Density (mg/ccm)") + facet_wrap(~Bone.Group)
+
+ggplot(data=hist2, aes(x=BoneDensity, fill=Treatment.Group)) + geom_density(alpha=0.5) + scale_x_log10() + labs(title="Bone Density by Treatment Group (Log-Scale)", x="Bone Density (mg/ccm)") +facet_wrap(~Specimen.ID) + coord_flip()
+
+
+dorven2 <- hist2 %>%
+  mutate(Position_Group = case_when(
+    str_detect(Position, regex("Dorsal|Proximal1|Proximal2|Proximal3|Proximal4|Proximal5|Distal1|Distal2|Distal3|Distal4|Distal5|Mid1|Mid2|Mid3|Mid4|Mid5|propterygium")) ~ "Dorsal",
+    str_detect(Position, regex("Ventral|Proximal6|Proximal7|Proximal8|Proximal9|Proximal10|Distal6|Distal7|Distal8|Distal9|Distal10|Mid6|Mid7|Mid8|Mid9|Mid10|metapterygium")) ~ "Ventral",
+    TRUE ~ "Other"
+  ))
+
+ggplot(data=dorven2, aes(x=BoneDensity, fill=Treatment.Group)) + geom_density(alpha=0.5) + scale_x_log10() + labs(title="Bone Density by Treatment Group (Log-Scale)", x="Bone Density (mg/ccm)") + facet_wrap(~Position_Group) + xlim(0,2000)
+
+static2 <- filtdata %>% group_by(Treatment.Group, Specimen.ID) %>% summarise(meandensity=mean(BoneDensity), SDdensity=sd(BoneDensity))
+
+ggplot(static2, aes(x=Specimen.ID, y=meandensity, color=Treatment.Group)) + geom_point(size=2)+ geom_errorbar(aes(ymin=meandensity-SDdensity, ymax=meandensity+SDdensity)) + labs(title = "Mean Bone Density and Standard Deviation by Individual", x = "Specimen", y = "Bone Density (mg/ccm)")
+
+static3 <- data %>% group_by(Treatment.Group) %>% summarise(meandensity=mean(BoneDensity), SDdensity=sd(BoneDensity))
+
+ggplot(static3, aes(x=Treatment.Group, y=meandensity)) + geom_point(size=2)+ geom_errorbar(aes(ymin=meandensity-SDdensity, ymax=meandensity+SDdensity)) + labs(title = "Mean Bone Density and Standard Deviation by Individual", x = "Specimen", y = "Bone Density (mg/ccm)")
+
+static4 <- filtdata %>% group_by(Treatment.Group) %>% summarise(meandensity=mean(BoneDensity), SDdensity=sd(BoneDensity))
+
+ggplot(static4, aes(x=Treatment.Group, y=meandensity)) + geom_point(size=2)+ geom_errorbar(aes(ymin=meandensity-SDdensity, ymax=meandensity+SDdensity)) + labs(title = "Mean Bone Density and Standard Deviation by Individual", x = "Specimen", y = "Bone Density (mg/ccm)")
+
+```
+Simple T-Test for Overall Bone Densities
+```{r}
+ttestoverall1 <- t.test(BoneDensity ~ Treatment.Group, data=hist1, var.equal=TRUE)
+print(ttestoverall1)
+ttestoverall2 <- t.test(BoneDensity ~ Treatment.Group, data=hist2, var.equal=TRUE)
+print(ttestoverall2)
+```
+Resampling Trials to Observe Robustness of Data
+```{r}
+get_p_value_t_test <- function() {
+  resamp <- hist1 %>% sample_frac(1, replace = TRUE)
+  tresults <- t.test(BoneDensity ~ Treatment.Group, data = resamp, var.equal = TRUE)
+  return(tresults$p.value)
+}
+set.seed(123)
+pvalues <- replicate(n = 1000, expr=get_p_value_t_test())
+sig <- sum(pvalues < 0.05)
+hist(pvalues, main="Unfiltered for Errant Specimens")
+print(sig)
+pvaluesadj <- p.adjust(pvalues, method = "bonferroni")
+sig2 <- sum(pvaluesadj < 0.05)
+print(sig2)
+
+get_p_value_t_test2 <- function() {
+  resamp <- hist2 %>% sample_frac(1, replace = TRUE)
+  tresults <- t.test(BoneDensity ~ Treatment.Group, data = resamp, var.equal = TRUE)
+  return(tresults$p.value)
+}
+set.seed(123)
+pvalues <- replicate(n = 1000, expr=get_p_value_t_test2())
+sig3 <- sum(pvalues < 0.05)
+hist(pvalues, main="Filtered for Errant Specimens")
+print(sig3)
+pvaluesadj <- p.adjust(pvalues, method = "bonferroni")
+sig4 <- sum(pvaluesadj < 0.05)
+print(sig4)
+```
+T-Tests by Bone Group (Filtered and Unfiltered Data)
+```{r}
+boneavg <- data %>% group_by(Bone.Group, Treatment.Group) %>% summarise(meandensity=mean(BoneDensity), SDdensity=sd(BoneDensity), count=n())
+print(boneavg)
+
+ttest1 <- data %>% group_by(Bone.Group) %>% summarise(t_value = t.test(BoneDensity[Treatment.Group == "Aquatic"], BoneDensity[Treatment.Group == "Terrestrial"])$statistic, pvalues= t.test(BoneDensity[Treatment.Group == "Aquatic"], BoneDensity[Treatment.Group == "Terrestrial"])$p.value)
+print(ttest1)
+
+boneavg2 <- filtdata %>% group_by(Bone.Group, Treatment.Group) %>% summarise(meandensity=mean(BoneDensity), SDdensity=sd(BoneDensity), count=n())
+
+print(boneavg2)
+
+ttest2 <- filtdata %>% group_by(Bone.Group) %>% summarise(t_value = t.test(BoneDensity[Treatment.Group == "Aquatic"], BoneDensity[Treatment.Group == "Terrestrial"])$statistic, pvalues= t.test(BoneDensity[Treatment.Group == "Aquatic"], BoneDensity[Treatment.Group == "Terrestrial"])$p.value)
+print(ttest2)
+```
+
+Resampling Trials By Bone Groups
+```{r}
+get_p_value_t_test3 <- function(bonegroup) {
+  resamp <- hist1 %>% sample_frac(1, replace = TRUE)
+  tresults <- t.test(BoneDensity ~ Treatment.Group, data = resamp, var.equal = TRUE)
+  return(tresults$p.value)
+}
+pvals_by_group <- list()
+set.seed(123)
+for (bone_group in unique(hist1$Bone.Group)) {
+    
+  bonegroup <- hist1 %>% filter(Bone.Group == bone_group)
+  pvalues <- replicate(n = 1000, expr=get_p_value_t_test3(bonegroup))
+  pvals_by_group[[bone_group]] <- pvalues
+}
+
+hist(pvals_by_group[[1]], main=paste("p-values for", names(pvals_by_group)[1]))
+hist(pvals_by_group[[2]], main=paste("p-values for", names(pvals_by_group)[2]))
+hist(pvals_by_group[[3]], main=paste("p-values for", names(pvals_by_group)[3]))
+hist(pvals_by_group[[4]], main=paste("p-values for", names(pvals_by_group)[4]))
+
+
+sig2_by_bone_group <- sapply(pvals_by_group, function(pvals) sum(pvals < 0.05))
+
+print(sig2_by_bone_group)
+
+
+get_p_value_t_test4 <- function(bonegroup) {
+  resamp <- hist2 %>% sample_frac(1, replace = TRUE)
+  tresults <- t.test(BoneDensity ~ Treatment.Group, data = resamp, var.equal = TRUE)
+  return(tresults$p.value)
+}
+pvals_by_group <- list()
+set.seed(123)
+for (bone_group in unique(hist2$Bone.Group)) {
+    
+  bonegroup <- hist2 %>% filter(Bone.Group == bone_group)
+  pvalues <- replicate(n = 1000, expr=get_p_value_t_test4(bonegroup))
+  pvals_by_group[[bone_group]] <- pvalues
+}
+
+hist(pvals_by_group[[1]], main=paste("p-values for", names(pvals_by_group)[1]))
+hist(pvals_by_group[[2]], main=paste("p-values for", names(pvals_by_group)[2]))
+hist(pvals_by_group[[3]], main=paste("p-values for", names(pvals_by_group)[3]))
+hist(pvals_by_group[[4]], main=paste("p-values for", names(pvals_by_group)[4]))
+
+
+sig2_by_bone_group <- sapply(pvals_by_group, function(pvals) sum(pvals < 0.05))
+
+print(sig2_by_bone_group)
+```
+Bonferroni Adjustment Counts by Bone Group
+```{r}
+p_value_t_test3 <- function(bonegroup) {
+  resamp <- hist1 %>% sample_frac(1, replace = TRUE)
+  tresults <- t.test(BoneDensity ~ Treatment.Group, data = resamp, var.equal = TRUE)
+  return(tresults$p.value)
+}
+
+
+pvals_by_group <- list()
+set.seed(123)
+for (bone_group in unique(hist1$Bone.Group)) {
+  bonegroup <- hist1 %>% filter(Bone.Group == bone_group)
+  pvalues <- replicate(n = 1000, expr=p_value_t_test3(bonegroup))
+  pvals_by_group[[bone_group]] <- pvalues
+}
+
+
+all_pvals <- unlist(pvals_by_group)
+
+
+adjusted_pvals <- p.adjust(all_pvals, method = "bonferroni")
+
+
+adjusted_pvals_by_group <- split(adjusted_pvals, rep(1:length(pvals_by_group), times = sapply(pvals_by_group, length)))
+
+
+sig2_by_bone_group <- sapply(adjusted_pvals_by_group, function(pvals) sum(pvals < 0.05))
+
+print(sig2_by_bone_group)
+
+
+p_value_t_test4 <- function(bonegroup) {
+  resamp <- hist2 %>% sample_frac(1, replace = TRUE)
+  tresults <- t.test(BoneDensity ~ Treatment.Group, data = resamp, var.equal = TRUE)
+  return(tresults$p.value)
+}
+
+
+pvals_by_group <- list()
+set.seed(123)
+for (bone_group in unique(hist2$Bone.Group)) {
+  bonegroup <- hist2 %>% filter(Bone.Group == bone_group)
+  pvalues <- replicate(n = 1000, expr=p_value_t_test4(bonegroup))
+  pvals_by_group[[bone_group]] <- pvalues
+}
+
+all_pvals <- unlist(pvals_by_group)
+
+adjusted_pvals <- p.adjust(all_pvals, method = "bonferroni")
+
+adjusted_pvals_by_group <- split(adjusted_pvals, rep(1:length(pvals_by_group), times = sapply(pvals_by_group, length)))
+
+sig2_by_bone_group <- sapply(adjusted_pvals_by_group, function(pvals) sum(pvals < 0.05))
+
+print(sig2_by_bone_group)
+
+```
+
+Linear Regression (Dorsal-Ventral Analysis) of Radials
+```{r}
+rad1 <- data %>% filter(Bone.Group == "Radials") %>% group_by(Specimen.ID) %>% mutate(Radnum = rep(1:15, each=5, length.out=n())) %>% group_by(Specimen.ID, Radnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+print(rad1)
+
+ggplot(rad1, aes(x=factor(Radnum), y=meanbonedense)) + geom_boxplot() + labs(title="Bone Density of Radials (Log-Scale)", y="Bone Density (mg/ccm)") + scale_y_log10() 
+
+rad2 <- filtdata %>% filter(Bone.Group == "Radials") %>% group_by(Specimen.ID) %>% mutate(Radnum = rep(1:15, each=5, length.out=n())) %>% group_by(Specimen.ID, Radnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+print(rad2)
+
+ggplot(rad2, aes(x=factor(Radnum), y=meanbonedense)) + geom_boxplot() + labs(title="Bone Density of Radials", y="Bone Density (mg/ccm)")
+
+ggplot(rad2, aes(x=Radnum, y=meanbonedense)) + geom_point() + geom_smooth(method="lm", color='blue') + labs(title="Bone Density of Radials", y="Bone Density (mg/ccm)")
+
+lmrad <- lm(meanbonedense ~ Radnum, data = rad2)
+summary(lmrad)
+
+radialavg <- rad2 %>% group_by(Radnum) %>% summarise(avgbonedense=mean(meanbonedense, na.rm=TRUE))
+ggplot(radialavg, aes(x=Radnum, y=avgbonedense))+geom_point() + geom_smooth(method="lm", color='blue') + labs(y="Bone Density (mg/ccm)")
+
+lmrad2 <- lm(avgbonedense ~ Radnum, data = radialavg)
+summary(lmrad2)
+
+radavgfiltered <- rad2 %>% group_by(Radnum) %>% summarise(avgbonedense=mean(meanbonedense, na.rm=TRUE)) %>% filter(Radnum !=15)
+
+ggplot(radavgfiltered, aes(x=Radnum, y=avgbonedense))+geom_point() + geom_smooth(method="lm", color='blue') + labs(title="Bone Density of Radials", y="Bone Density (mg/ccm)")
+lmrad3 <- lm(avgbonedense ~ Radnum, data = radavgfiltered)
+summary(lmrad3)
+
+rad3 <- data %>% filter(Bone.Group == "Radials") %>% group_by(Specimen.ID) %>% mutate(Radnum = rep(1:15, each=5, length.out=n())) %>% group_by(Specimen.ID, Radnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+radavgunfiltered <- rad3 %>% group_by(Radnum) %>% summarise(avgbonedense=mean(meanbonedense, na.rm=TRUE)) %>% filter(Radnum !=15)
+
+ggplot(radavgunfiltered, aes(x=Radnum, y=avgbonedense))+geom_point() + geom_smooth(method="lm", color='blue') + labs(title="unfiltered", y="Bone Density (mg/ccm)")
+lmrad4 <- lm(avgbonedense ~ Radnum, data = radavgunfiltered)
+summary(lmrad4)
+```
+Linear Regression (Dorsal-Ventral Analysis) of Prox Fin Rays
+```{r}
+prox1 <- data %>% filter(Bone.Group == "Proximal_Fin_Rays") %>% group_by(Specimen.ID) %>% mutate(Proxnum = rep(1:10, each=5, length.out=n())) %>% group_by(Specimen.ID, Proxnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+print(prox1)
+
+ggplot(prox1, aes(x=factor(Proxnum), y=meanbonedense)) + geom_boxplot() + labs(title="Bone Density of Proximal Rays (Log-Scale)", y="Bone Density (mg/ccm)") + scale_y_log10() 
+
+prox2 <- filtdata %>% filter(Bone.Group == "Proximal_Fin_Rays") %>% group_by(Specimen.ID) %>% mutate(Proxnum = rep(1:10, each=5, length.out=n())) %>% group_by(Specimen.ID, Proxnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+print(prox2)
+
+ggplot(prox2, aes(x=factor(Proxnum), y=meanbonedense)) + geom_boxplot() + labs(title="Bone Density of Proximal Rays", y="Bone Density (mg/ccm)")
+
+ggplot(prox2, aes(x=Proxnum, y=meanbonedense)) + geom_point() + geom_smooth(method="lm", color='blue') + labs(y="Bone Density (mg/ccm)")
+
+lmprox <- lm(meanbonedense ~ Proxnum, data = prox2)
+summary(lmprox)
+
+proxavg <- prox2 %>% group_by(Proxnum) %>% summarise(avgbonedense=mean(meanbonedense, na.rm=TRUE))
+ggplot(proxavg, aes(x=Proxnum, y=avgbonedense))+geom_point() + geom_smooth(method="lm", color='blue') + labs(y="Bone Density (mg/ccm)")
+
+lmprox2 <- lm(avgbonedense ~ Proxnum, data = proxavg)
+summary(lmprox2)
+
+prox3 <- data %>% filter(Bone.Group == "Proximal_Fin_Rays") %>% group_by(Specimen.ID) %>% mutate(Proxnum = rep(1:10, each=5, length.out=n())) %>% group_by(Specimen.ID, Proxnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+proxavg <- prox3 %>% group_by(Proxnum) %>% summarise(avgbonedense=mean(meanbonedense, na.rm=TRUE))
+ggplot(proxavg, aes(x=Proxnum, y=avgbonedense))+geom_point() + geom_smooth(method="lm", color='blue') + labs(y="Bone Density (mg/ccm)")
+
+lmprox3 <- lm(avgbonedense ~ Proxnum, data = proxavg)
+summary(lmprox3)
+```
+Linear Regression (Dorsal-Ventral Analysis) of Distal Fin Rays
+```{r}
+dist1 <- data %>% filter(Bone.Group == "Distal_Fin_Rays") %>% group_by(Specimen.ID) %>% mutate(Distnum = rep(1:10, each=5, length.out=n())) %>% group_by(Specimen.ID, Distnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+print(dist1)
+
+ggplot(dist1, aes(x=factor(Distnum), y=meanbonedense)) + geom_boxplot() + labs(title="Bone Density of Distal Rays (Log-Scale)", y="Bone Density (mg/ccm)") + scale_y_log10() 
+
+dist2 <- filtdata %>% filter(Bone.Group == "Distal_Fin_Rays") %>% group_by(Specimen.ID) %>% mutate(Distnum = rep(1:10, each=5, length.out=n())) %>% group_by(Specimen.ID, Distnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+print(dist2)
+
+ggplot(dist2, aes(x=factor(Distnum), y=meanbonedense)) + geom_boxplot() + labs(title="Bone Density of Distal Rays", y="Bone Density (mg/ccm)")
+
+ggplot(dist2, aes(x=Distnum, y=meanbonedense)) + geom_point() + geom_smooth(method="lm", color='blue') + labs(y="Bone Density (mg/ccm)")
+
+lmdist <- lm(meanbonedense ~ Distnum, data = dist2)
+summary(lmdist)
+
+distavg <- dist2 %>% group_by(Distnum) %>% summarise(avgbonedense=mean(meanbonedense, na.rm=TRUE))
+ggplot(distavg, aes(x=Distnum, y=avgbonedense))+geom_point() + geom_smooth(method="lm", color='blue') + labs(y="Bone Density (mg/ccm)") 
+
+lmdist2 <- lm(avgbonedense ~ Distnum, data = distavg)
+summary(lmdist2)
+
+dist3 <- data %>% filter(Bone.Group == "Distal_Fin_Rays") %>% group_by(Specimen.ID) %>% mutate(Distnum = rep(1:10, each=5, length.out=n())) %>% group_by(Specimen.ID, Distnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+distavg <- dist3 %>% group_by(Distnum) %>% summarise(avgbonedense=mean(meanbonedense, na.rm=TRUE))
+ggplot(distavg, aes(x=Distnum, y=avgbonedense))+geom_point() + geom_smooth(method="lm", color='blue') + labs( y="Bone Density (mg/ccm)")
+
+lmdist3 <- lm(avgbonedense ~ Distnum, data = distavg)
+summary(lmdist3)
+
+```
+
+Linear Regression (Dorsal-Ventral Analysis) of Propterygium and Metapterygium
+```{r}
+PrMt1 <- data %>% filter(Bone.Group == "Prop_Metap") %>% group_by(Specimen.ID) %>% mutate(Prnum = rep(1:2, each=5, length.out=n())) %>% group_by(Specimen.ID, Prnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+print(PrMt1)
+
+ggplot(PrMt1, aes(x=factor(Prnum), y=meanbonedense)) + geom_boxplot() + labs(title="Bone Density of Propterygium and Metapterygium (Log-Scale)", y="Bone Density (mg/ccm)") + scale_y_log10() 
+
+Pr2 <- filtdata %>% filter(Bone.Group == "Prop_Metap") %>% group_by(Specimen.ID) %>% mutate(Prnum = rep(1:2, each=5, length.out=n())) %>% group_by(Specimen.ID, Prnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+print(Pr2)
+
+ggplot(Pr2, aes(x=factor(Prnum), y=meanbonedense)) + geom_boxplot() + labs(title="Bone Density of Propterygium and Metapterygium", y="Bone Density (mg/ccm)")
+
+ggplot(Pr2, aes(x=Prnum, y=meanbonedense)) + geom_point() + geom_smooth(method="lm", color='blue')+ labs( y="Bone Density (mg/ccm)")
+
+lmpr <- lm(meanbonedense ~ Prnum, data = Pr2)
+summary(lmpr)
+
+pravg <- Pr2 %>% group_by(Prnum) %>% summarise(avgbonedense=mean(meanbonedense, na.rm=TRUE))
+ggplot(pravg, aes(x=Prnum, y=avgbonedense))+geom_point() + geom_smooth(method="lm", color='blue')+ labs(y="Bone Density (mg/ccm)")
+
+lmpr2 <- lm(meanbonedense ~ Prnum, data = Pr2)
+summary(Pr2)
+
+
+t_test_result <- t.test(meanbonedense ~ Prnum, data = Pr2, var.equal = TRUE)
+print(t_test_result)
+
+
+t_test_result <- t.test(meanbonedense ~ Prnum, data = PrMt1, var.equal = TRUE)
+print(t_test_result)
+```
+Dorsal-Ventral Axis Comparisons by Treatment (and Bone Group)
+```{r}
+library(tidyverse)
+library(ggplot2)
+
+rad2 <- filtdata %>%
+  filter(Bone.Group == "Radials") %>%
+  group_by(Specimen.ID, Treatment.Group) %>% 
+  mutate(Radnum = rep(1:15, each=5, length.out=n())) %>%
+  group_by(Treatment.Group, Radnum) %>%
+  summarise(meanbonedense = mean(BoneDensity))
+
+ggplot(rad2, aes(x=Radnum, y=meanbonedense, color=Treatment.Group)) + geom_point() + geom_smooth(method="lm", se=TRUE) + labs(y="Mean Bone Density (mg/ccm)")
+
+#rad2 <- filtdata %>% filter(Bone.Group == "Radials") %>% group_by(Specimen.ID) %>% mutate(Radnum = rep(1:15, each=5, length.out=n())) %>% group_by(Specimen.ID, Radnum) %>% summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+
+prox2 <- filtdata %>%
+  filter(Bone.Group == "Proximal_Fin_Rays") %>%
+  group_by(Specimen.ID, Treatment.Group) %>%
+  mutate(Proxnum = rep(1:10, each=5, length.out=n())) %>%
+  group_by(Treatment.Group, Proxnum) %>%
+  summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+ggplot(prox2, aes(x = Proxnum, y = meanbonedense, color = Treatment.Group)) + geom_point() + geom_smooth(method="lm", se=TRUE) + labs(y="Mean Bone Density (mg/ccm)")
+
+dist2 <- filtdata %>%
+  filter(Bone.Group == "Distal_Fin_Rays") %>%
+  group_by(Specimen.ID, Treatment.Group) %>%
+  mutate(Distnum = rep(1:10, each=5, length.out=n())) %>%
+  group_by(Treatment.Group, Distnum) %>%
+  summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+ggplot(dist2, aes(x = Distnum, y = meanbonedense, color = Treatment.Group)) + geom_point() + geom_smooth(method="lm", se=TRUE) + labs(y="Mean Bone Density (mg/ccm)")
+
+Pr2 <- filtdata %>%
+  filter(Bone.Group == "Prop_Metap") %>%
+  group_by(Specimen.ID, Treatment.Group) %>%
+  mutate(Prnum = rep(1:2, each=5, length.out=n())) %>%
+  group_by(Treatment.Group, Prnum) %>%
+  summarise(meanbonedense = mean(BoneDensity, na.rm = TRUE))
+ggplot(Pr2, aes(x = Prnum, y = meanbonedense, color = Treatment.Group)) + geom_point() + geom_smooth(method="lm", se=TRUE) + labs(y="Mean Bone Density (mg/ccm)")
+
+lm_radials <- lm(meanbonedense ~ Radnum * Treatment.Group, data = rad2)
+summary(lm_radials)
+lm_prox <- lm(meanbonedense ~ Proxnum * Treatment.Group, data = prox2)
+summary(lm_prox)
+
+lm_dist <- lm(meanbonedense ~ Distnum * Treatment.Group, data = dist2)
+summary(lm_dist)
+
+lm_pr <- lm(meanbonedense ~ Prnum * Treatment.Group, data = Pr2)
+summary(lm_pr)
+
+```
+
+ANOVA analysis for Density by Treatment Group
+```{r}
+anova_results <- filtdata %>%
+  group_by(Bone.Group) %>%
+  summarise(
+    anova_table = list(broom::tidy(aov(BoneDensity ~ Treatment.Group, data = cur_data()))),
+    .groups = "drop"
+  ) %>%
+  unnest(anova_table)  
+
+
+print(anova_results)
+
+anova_results <- data %>%
+  group_by(Bone.Group) %>%
+  summarise(
+    anova_table = list(broom::tidy(aov(BoneDensity ~ Treatment.Group, data = cur_data()))),
+    .groups = "drop"
+  ) %>%
+  unnest(anova_table)  
+
+
+print(anova_results)
+
+
+
+
+```
+
+Proximal-Distal Trends by Bone Group Overall
+#```{r}
+library(ggplot2)
+with(boneavg2, table(Bone.Group, Treatment.Group))
+boneavg2 <- filtdata %>% group_by(Bone.Group, Treatment.Group) %>% summarise(meandensity=mean(BoneDensity), SDdensity=sd(BoneDensity), count=n())
+print(boneavg2)
+boneavg2 <- droplevels(boneavg2)
+boneavg2 <- boneavg2 %>%
+  group_by(Bone.Group, Treatment.Group) %>%
+  filter(n() > 1) %>%
+  ungroup()
+boneavg2$Bone.Group <- as.numeric(boneavg2$Bone.Group, levels=c("Prop_Metap", "Radials", "Proximal_Fin_Rays", "Distal_Fin_Rays"))
+#boneavg2$Bone.Group <- factor(boneavg2$Bone.Group, levels = c("Prop_Metap", "Radials", "Proximal_Fin_Rays", "Distal_Fin_Rays"))
+#boneavg2$Bone.Group <- as.numeric(boneavg2$Bone.Group)
+
+ggplot(boneavg2, aes(x=Bone.Group, y=meandensity, color=Treatment.Group))+ geom_point(position= position_dodge(width=0.5), size=2)+  geom_smooth(method="lm", se=TRUE) +theme(axis.text.x = element_text(angle = 45, hjust = 1)) + labs(title="Bone Density by Bone Group Filtered", y="Mean Bone Density (mg/ccm)")
+lm_pr <- lm(meandensity ~ Bone.Group * Treatment.Group, data = boneavg2)
+summary(lm_pr)
+
+#```
+#```{r}
+print(table(boneavg2$Bone.Group))
+print(table(boneavg2$Treatment.Group))
+
+#```
+```{r}
+# Define boneavg2
+boneavg2 <- filtdata %>%
+  group_by(Bone.Group, Treatment.Group) %>%
+  summarise(meandensity = mean(BoneDensity), 
+            SDdensity = sd(BoneDensity), 
+            count = n(), .groups = "drop")
+
+# Convert Bone.Group to factor and then numeric
+boneavg2$Bone.Group <- factor(boneavg2$Bone.Group, levels = c("Prop_Metap", "Radials", "Proximal_Fin_Rays", "Distal_Fin_Rays"))
+boneavg2$Bone.Group <- as.numeric(boneavg2$Bone.Group)
+
+# Drop unused levels
+boneavg2 <- droplevels(boneavg2)
+
+# ggplot
+ggplot(boneavg2, aes(x = Bone.Group, y = meandensity, color = Treatment.Group)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_smooth(method = "lm", se = TRUE) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Bone Density by Bone Group Filtered", y = "Mean Bone Density (mg/ccm)")
+
+# Linear model
+lm_pr <- lm(meandensity ~ Bone.Group * Treatment.Group, data = boneavg2)
+summary(lm_pr)
+```
+
+
+#```{r}
+# Convert Bone.Group to a factor and map levels to numbers
+boneavg2$Bone.Group <- factor(boneavg2$Bone.Group, levels = c("Prop_Metap", "Radials", "Proximal_Fin_Rays", "Distal_Fin_Rays"))
+boneavg2$Bone.Group <- as.numeric(boneavg2$Bone.Group)
+
+# Create the ggplot
+ggplot(boneavg2, aes(x = Bone.Group, y = meandensity, color = Treatment.Group)) +
+  geom_point(position = position_dodge(width = 0.5), size = 2) +
+  geom_smooth(method = "lm", se = TRUE) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Bone Density by Bone Group Filtered", y = "Mean Bone Density (mg/ccm)")
+
+# Fit the linear model
+lm_pr <- lm(meandensity ~ Bone.Group * Treatment.Group, data = boneavg2)
+summary(lm_pr)
+
+#```
+
+
+Proximal-Distal Axis Within Distal Fin Rays
+```{r}
+library(tidyverse)
+dist2 <- filtdata %>%
+  filter(Bone.Group == "Distal_Fin_Rays") %>%
+  mutate(
+    ProximalDistal = rep(c("Proximal", "Mid-Proximal", "Mid", "Mid-Distal", "Distal"), length.out = n())
+  )
+dist_summary <- dist2 %>%
+  group_by(ProximalDistal, Treatment.Group) %>%
+  summarise(
+    mean_density = mean(BoneDensity, na.rm = TRUE),
+    se_density = sd(BoneDensity, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+ggplot(dist_summary, aes(x = ProximalDistal, y = mean_density, color = Treatment.Group)) +
+  geom_point(size = 3, position = position_dodge(width = 0.2)) +
+  geom_line(aes(group = Treatment.Group), position = position_dodge(width = 0.2)) +
+  geom_errorbar(aes(ymin = mean_density - se_density, ymax = mean_density + se_density),
+                width = 0.2, position = position_dodge(width = 0.2)) +
+  labs(
+    title = "Proximal-Distal Trends in Bone Density for Distal Fin Rays",
+    x = "Proximal-Distal Level",
+    y = "Mean Bone Density"
+  )
+
+anova_model <- aov(
+  BoneDensity ~ ProximalDistal *  Treatment.Group,
+  data = dist2
+)
+summary(anova_model)
+```
